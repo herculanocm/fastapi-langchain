@@ -14,6 +14,9 @@ async def get_session() -> AsyncGenerator:
         await session.close()
 
 async def get_llm_service() -> LLMService:
+    if not all([settings.LLM_MODEL, settings.LLM_API_KEY]):
+        raise RuntimeError("LLM model ou API key não configurado corretamente.")
+    
     # Substitua pelos valores reais de modelo e chave
     return LLMService(
         model=settings.LLM_MODEL,
