@@ -1,10 +1,11 @@
 from langchain_openai import ChatOpenAI
-from langchain_core.tools import tool
-import aiohttp
-import json
+from langchain.agents import AgentExecutor, create_tool_calling_agent
+from langchain_openai import ChatOpenAI
+from core.llm_tool_datahub import datahub_schema_search_logic,datahub_schema_search
+from langchain.prompts import ChatPromptTemplate
 
 class LLMService:
-    def __init__(self, model: str, api_key: str, temperature: float = 0.7, DATAHUB_JWT_KEY: str = None, DATAHUB_URL: str = None):
+    def __init__(self, model: str, api_key: str, temperature: float = 0.7):
         self.model = model
         self.openai_api_key = api_key
         self.temperature = temperature
@@ -14,14 +15,64 @@ class LLMService:
             temperature=temperature
         )
 
-        self.DATAHUB_JWT_KEY=DATAHUB_JWT_KEY
-        self.DATAHUB_URL=DATAHUB_URL
+        self.agent_executor: AgentExecutor | None = None
+
+    async def init_agent(self):
+        if self.agent_executor is None:
+            chat_template = ChatPromptTemplate.from_messages(
+                [
+                    ('system', """
+            Você tem acesso a uma ferramenta chamada `datahub_schema_search(question: str)` que constrói uma query GraphQL para buscar datasets e suas colunas dentro do DataHub da empresa.
+
+            ### Como usar a ferramenta:
+
+            - Utilize **termos descritivos** relacionados a tabelas, dados ou domínios de negócio.
+            - O campo de busca aceita **termos simples**, **frases**, ou **buscas compostas** com operadores como AND, OR, NOT e wildcards (como `clientes*`).
+            - Exemplos de termos válidos:
+            - `"clientes"`
+            - `"vendas AND 2023"`
+            - `"transacoes NOT canceladas"`
+            - `"\"usuarios ativos\""`
+            - `"clientes*"`
+
+            ### O que você recebe:
+            A ferramenta retornará:
+            - Nome do dataset
+            - Descrição (se houver)
+            - Lista de campos do schema (nome e tipo)
+            - Descrição editável de cada campo, se existir
+
+            ### Objetivo:
+            Utilize esta ferramenta sempre que quiser entender a estrutura de um dataset, descobrir tabelas relevantes ou explorar os dados disponíveis no catálogo corporativo.
+
+            ### Exemplos de uso esperados:
+            - Para responder perguntas como:
+            - "Quais datasets falam sobre empréstimos?"
+            - "Mostre as colunas da tabela relacionada a clientes ativos"
+            - "Liste tabelas que contêm dados de faturamento"
+            - Gere uma busca usando o termo apropriado e chame a ferramenta.
+
+            Lembre-se: foque em **consultar e explorar datasets relevantes** usando termos que façam sentido no contexto dos dados corporativos.
+
+            """),
+                    ('human', '{question}'),
+                    ('system', '{agent_scratchpad}')
+                ]
+            )
+            
+            agent = create_tool_calling_agent(self.client, [datahub_schema_search], prompt=chat_template)
+            self.agent_executor = AgentExecutor(agent=agent, tools=[datahub_schema_search], verbose=True)
+
 
     async def generate(self, messages: list):
         """
         Gera uma resposta do modelo LLM usando a lista de mensagens.
         """
         return await self.client.ainvoke(messages)
+    
+    async def ask_with_tools(self, question: str) -> str:
+        await self.init_agent()
+        return await self.agent_executor.ainvoke({"question": question})
 
     async def resume_the_question_to_one_word(self, question: str) -> str:
         """
@@ -43,110 +94,12 @@ class LLMService:
             text = str(resposta).strip()
         return text.split()[0] if text else ""
     
-
-    async def datahub_schema_search(self, search_term: str) -> str:
+    
+    async def datahub_schema_search(self, question: str) -> str:
         """
         Usa GraphQL para buscar datasets e campos no DataHub com base no termo de busca fornecido.
         A busca percorre todas as páginas disponíveis.
         """
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {self.DATAHUB_JWT_KEY}"  # opcional
-        }
-
-        all_results = []
-        start = 0
-        count = 50
-        total = None
-
-        async with aiohttp.ClientSession() as session:
-            while total is None or start < total:
-                query_payload = {
-                    "query": """
-                    query getTablesAndColumns($query: String!, $start: Int!, $count: Int!) {
-                    search(input: {type: DATASET, query: $query, start: $start, count: $count}) {
-                        start
-                        count
-                        total
-                        searchResults {
-                        entity {
-                            ... on Dataset {
-                            name
-                            editableProperties {
-                                description
-                            }
-                            schemaMetadata {
-                                fields {
-                                fieldPath
-                                type
-                                }
-                            }
-                            editableSchemaMetadata {
-                                editableSchemaFieldInfo {
-                                fieldPath
-                                description
-                                }
-                            }
-                            globalTags {
-                                tags {
-                                tag {
-                                    name
-                                }
-                                }
-                            }
-                            }
-                        }
-                        }
-                    }
-                    }
-                    """,
-                    "variables": {
-                        "query": search_term,
-                        "start": start,
-                        "count": count
-                    }
-                }
-
-                async with session.post(self.DATAHUB_URL, json=query_payload, headers=headers) as response:
-                    if response.status != 200:
-                        return f"Erro ao consultar DataHub: status {response.status}"
-                    data = await response.json()
-
-                try:
-                    if not data or "data" not in data or "search" not in data["data"]:
-                        return f"Resposta inesperada da API na página {start}: {json.dumps(data, indent=2)}"
-
-                    search_data = data["data"]["search"]
-                    total = search_data.get("total", 0)
-                    search_results = search_data.get("searchResults", [])
-
-                    for result in search_results:
-                        dataset = result.get("entity", {})
-                        name = dataset.get("name", "N/A")
-                        editable = dataset.get("editableProperties") or {}
-                        desc = editable.get("description", "Sem descrição")
-                        fields = dataset.get("schemaMetadata", {}).get("fields", [])
-                        editableSchemaMetadata = dataset.get("editableSchemaMetadata") or {}
-                        field_descriptions = editableSchemaMetadata.get("editableSchemaFieldInfo", [])
-                        globalTags = dataset.get("globalTags") or {}
-                        tags = globalTags.get("tags", [])
-
-                        tag_names = [tag.get("tag", {}).get("name") for tag in tags if tag.get("tag")]
-                        tag_line = f" Tags: {', '.join(tag_names)}" if tag_names else ""
-
-                        all_results.append(f"\n Dataset: {name}\n Descrição: {desc}\n{tag_line}")
-                        for field in fields:
-                            path = field.get("fieldPath", "-")
-                            ftype = field.get("type", "unknown")
-                            description = next(
-                                (fd.get("description", "—") for fd in field_descriptions if fd.get("fieldPath") == path),
-                                "—"
-                            )
-                            all_results.append(f"  ▸ {path} ({ftype}): {description}")
-
-                    start += count
-
-                except Exception as e:
-                    return f"Erro ao processar resposta na página {start}: {str(e)}"
-
-        return "\n".join(all_results) if all_results else "Nenhum dataset encontrado."
+        resposta = await datahub_schema_search_logic(question)
+        return resposta
+        
