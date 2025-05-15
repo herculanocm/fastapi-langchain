@@ -9,6 +9,9 @@ class Settings(BaseSettings):
     LLM_MODEL: str 
     LLM_TEMPERATURE: float 
 
+    DATAHUB_JWT_KEY: str
+    DATAHUB_URL: str = 'https://datacatalog.poligonocapital.io/api/graphql'
+
     class Config:
         case_sensitive = True
 

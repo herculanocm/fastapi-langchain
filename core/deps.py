@@ -18,5 +18,7 @@ async def get_llm_service() -> LLMService:
     return LLMService(
         model=settings.LLM_MODEL,
         api_key=settings.LLM_API_KEY,
-        temperature=settings.LLM_TEMPERATURE
+        temperature=settings.LLM_TEMPERATURE,
+        DATAHUB_JWT_KEY=settings.DATAHUB_JWT_KEY,
+        DATAHUB_URL=settings.DATAHUB_URL
     ) 

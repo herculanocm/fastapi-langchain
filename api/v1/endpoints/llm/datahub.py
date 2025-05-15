@@ -16,6 +16,6 @@ async def resume_question_one_word(
     llm_service: LLMService = Depends(get_llm_service)
 ):
     
-    resposta = await llm_service.resume_the_question_to_one_word(input.question)
+    resposta = await llm_service.datahub_schema_search(search_term=input.question)
     return {"resposta": resposta}
     
