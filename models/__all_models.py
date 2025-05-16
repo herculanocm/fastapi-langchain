@@ -1,1 +1,1 @@
-from models.curso_model import CursoModel
+from models.message_model import MessageModel
