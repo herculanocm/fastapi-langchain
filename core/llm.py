@@ -1,5 +1,5 @@
 from langchain_openai import ChatOpenAI
-from langchain.agents import AgentExecutor, create_tool_calling_agent
+from langchain.agents import AgentExecutor, create_tool_calling_agent, initialize_agent, AgentType
 from langchain_openai import ChatOpenAI
 from core.llm_tool_datahub import datahub_schema_search_logic,datahub_schema_search
 from langchain.prompts import ChatPromptTemplate
@@ -19,6 +19,7 @@ class LLMService:
 
     async def init_agent(self):
         if self.agent_executor is None:
+            '''
             chat_template = ChatPromptTemplate.from_messages(
                 [
                     ('system', """
@@ -55,13 +56,20 @@ class LLMService:
             Lembre-se: foque em **consultar e explorar datasets relevantes** usando termos que façam sentido no contexto dos dados corporativos.
 
             """),
-                    ('human', '{question}'),
                     ('system', '{agent_scratchpad}')
                 ]
             )
+            '''
             
-            agent = create_tool_calling_agent(self.client, [datahub_schema_search], prompt=chat_template)
-            self.agent_executor = AgentExecutor(agent=agent, tools=[datahub_schema_search], verbose=True)
+            # agent = create_tool_calling_agent(self.client, [datahub_schema_search], prompt=chat_template)
+            # self.agent_executor = AgentExecutor(agent=agent, tools=[datahub_schema_search], verbose=True)
+
+            self.agent_executor  = initialize_agent(
+                tools=[datahub_schema_search],
+                llm=self.client,
+                agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION,
+                verbose=True
+            )
 
 
     async def generate(self, messages: list):
@@ -70,9 +78,9 @@ class LLMService:
         """
         return await self.client.ainvoke(messages)
     
-    async def ask_with_tools(self, question: str) -> str:
+    async def ask_with_tools(self, messages: str) -> str:
         await self.init_agent()
-        return await self.agent_executor.ainvoke({"question": question})
+        return await self.agent_executor.ainvoke({"input": messages})
 
     async def resume_the_question_to_one_word(self, question: str) -> str:
         """
