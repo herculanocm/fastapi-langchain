@@ -4,7 +4,7 @@ from core.database import Session
 from core.llm import LLMService
 from core.configs import settings
 
-async def get_session() -> AsyncGenerator:
+async def get_session() -> AsyncGenerator[AsyncSession, None]:
     session: AsyncSession = Session()
     try:
         yield session

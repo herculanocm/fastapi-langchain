@@ -30,5 +30,5 @@ class MessageModel(SQLModel, table=True):
     role: str = Field(sa_column=sa.Column("mes_tx_role",sa.String(50)))
     created_at: Optional[datetime.datetime] = Field(default=None, sa_column=sa.Column("mes_dt_created_at",sa.DateTime, server_default=sa.func.now()))
     # content is text no limit on postgres
-    content: str = Field("mes_tx_content", sa_column=sa.Column(sa.Text))
+    content: str = Field(sa_column=sa.Column("mes_tx_content", sa.Text))
     
