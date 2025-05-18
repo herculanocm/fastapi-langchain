@@ -6,7 +6,9 @@ from schemas.thread_schema import ThreadMessageSchema
 from typing import List
 import uuid
 
-router = APIRouter()
+router = APIRouter(
+    tags=["Thread Message"],
+)
 
 @router.post(
     "/thread-message",
@@ -86,7 +88,8 @@ async def list_thread_messages_by_user(
     status_code=status.HTTP_204_NO_CONTENT
 )
 async def delete_thread_message(
-    id: str,
+    id: uuid.UUID,
+    force: bool = False,
     session: AsyncSession = Depends(get_session)
 ):
     """
@@ -94,8 +97,15 @@ async def delete_thread_message(
     """
 
     try:
-        result = await ThreadService.delete(session=session, id=id)
-        if not result:
+        has_message = await ThreadService.has_messages(session=session, thread_id=id)
+        if has_message and not force:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Thread message cannot be deleted because it has messages"
+            )
+        
+        result = await ThreadService.delete(session=session, id=id, force=force)
+        if result == False:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Thread message not found"

@@ -1,6 +1,7 @@
 from typing import Optional, List
 from sqlalchemy.ext.asyncio import AsyncSession
 from models.thread_model import ThreadMessageModel
+from models.message_model import MessageModel
 from schemas.thread_schema import ThreadMessageSchema
 from sqlmodel import select
 from core.utils import now_sp
@@ -86,7 +87,17 @@ class ThreadService:
         return None
     
     @staticmethod
-    async def delete(session: AsyncSession, id: uuid.UUID) -> bool:
+    async def delete(session: AsyncSession, id: uuid.UUID, force: bool) -> bool:
+        # Se force for True, deleta as mensagens associadas
+        if force:
+            result = await session.execute(
+                select(MessageModel).where(MessageModel.thread_id == id)
+            )
+            messages = result.scalars().all()
+            for message in messages:
+                await session.delete(message)
+                await session.commit()
+        
         result = await session.execute(
             select(ThreadMessageModel).where(ThreadMessageModel.id == id)
         )
@@ -94,5 +105,16 @@ class ThreadService:
         if thread:
             await session.delete(thread)
             await session.commit()
+            return True
+        return False
+    
+    # check if the thread message has messages (prevent violates foreign key constraint)
+    @staticmethod
+    async def has_messages(session: AsyncSession, thread_id: uuid.UUID) -> bool:
+        result = await session.execute(
+            select(MessageModel).where(MessageModel.thread_id == thread_id)
+        )
+        thread = result.scalars().first()
+        if thread:
             return True
         return False
