@@ -1,1 +1,2 @@
 from models.message_model import MessageModel
+from models.thread_model import ThreadMessageModel

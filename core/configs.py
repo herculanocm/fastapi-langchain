@@ -1,6 +1,5 @@
 from pydantic_settings import BaseSettings
 
-
 class Settings(BaseSettings):
     API_V1_STR: str = '/api/v1'
     DB_URL: str = 'postgresql+asyncpg://postgres:postgres@localhost:5432/teste'
@@ -45,7 +44,9 @@ class Settings(BaseSettings):
 
             Lembre-se: foque em **consultar e explorar datasets relevantes** usando termos que façam sentido no contexto dos dados corporativos.
 
+            Responda sempre em português.
             """
+    
 
     class Config:
         case_sensitive = True

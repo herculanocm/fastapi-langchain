@@ -12,10 +12,14 @@ class MessageModel(SQLModel, table=True):
 
     __table_args__ = (
         sa.PrimaryKeyConstraint("mes_pk_uuid", name="pk_user_message"),
+        sa.ForeignKeyConstraint(
+            ["mes_fk_thread_id"],
+            ["user_thread_message.thr_pk_uuid"],
+            name="fk_user_message_thread_id"
+        ),
         sa.Index(
-            "ix_user_thread_created",
-            "mes_tx_user_id",
-            "mes_tx_thread_id",
+            "ix_thread_created",
+            "mes_fk_thread_id",
             "mes_dt_created_at"
         ),
     )
@@ -25,8 +29,8 @@ class MessageModel(SQLModel, table=True):
         sa_column=sa.Column("mes_pk_uuid", sa.Uuid(as_uuid=True), default=uuid.uuid4)
         )
     
-    thread_id: Optional[str] = Field(default=None, sa_column=sa.Column("mes_tx_thread_id", sa.String(255)))
-    user_id: Optional[str] = Field(default=None, sa_column=sa.Column("mes_tx_user_id", sa.String(255)))
+    thread_id: Optional[uuid.UUID] = Field(default=None, sa_column=sa.Column("mes_fk_thread_id", sa.Uuid(as_uuid=True), default=uuid.uuid4))
+
     role: str = Field(sa_column=sa.Column("mes_tx_role",sa.String(50)))
     created_at: Optional[datetime.datetime] = Field(default=None, sa_column=sa.Column("mes_dt_created_at",sa.DateTime, server_default=sa.func.now()))
     # content is text no limit on postgres
