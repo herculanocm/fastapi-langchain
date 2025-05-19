@@ -1,4 +1,5 @@
 from pydantic_settings import BaseSettings
+from typing import Optional
 
 class Settings(BaseSettings):
     API_V1_STR: str = '/api/v1'
@@ -10,6 +11,10 @@ class Settings(BaseSettings):
 
     DATAHUB_JWT_KEY: str
     DATAHUB_URL: str = 'https://datacatalog.poligonocapital.io/api/graphql'
+
+    LOG_LEVEL: str = "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+    LOG_FILE: Optional[str] = None # Caminho para o arquivo de log, None para desabilitar
+
 
     START_MESSAGE: str = """
             Você tem acesso a uma ferramenta chamada `datahub_schema_search(question: str)` que constrói uma query GraphQL para buscar datasets e suas colunas dentro do DataHub da empresa.
@@ -44,8 +49,23 @@ class Settings(BaseSettings):
 
             Lembre-se: foque em **consultar e explorar datasets relevantes** usando termos que façam sentido no contexto dos dados corporativos.
 
+            ### Retorno de SQL
+            Caso o usuário solicite um retorno em SQL, você deve retornar uma query SQL válida para o banco de dados AWS Redshift.
+            Utilize o nome das tabelas em conjunto com o schema, não é necessário utilizar o nome do banco de dados.
+            Exemplo:
+            ```sql
+            SELECT * FROM captalys_analytics.d_calendario
+            ```
+
             Responda sempre em português.
             """
+    
+    WELLCOME_MESSAGE: str = """
+Olá! Você está conectado ao assistente de dados. Estou aqui para ajudar você a explorar e entender os dados disponíveis no DataHub da empresa.
+Você pode fazer perguntas sobre os datasets, suas colunas e como eles se relacionam. Além disso, posso ajudar a construir queries para buscar informações específicas.
+Para começar, basta me dizer o que você gostaria de saber ou explorar. Estou aqui para ajudar!
+            """
+    LLM_MAX_TOKENS: int = 2000
     
 
     class Config:

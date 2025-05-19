@@ -1,6 +1,9 @@
 from fastapi import FastAPI
 from core.configs import settings
 from api.v1.api import api_router
+from core.logging_config import ensure_logging_configured
+
+ensure_logging_configured()
 
 app = FastAPI(
     title="LLM API",

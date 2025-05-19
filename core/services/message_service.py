@@ -32,6 +32,30 @@ class MessageService:
             content=message.content
         )
         return data_return
+    
+    @staticmethod
+    async def create_message_by_thread_id(session: AsyncSession, thread_id: uuid.UUID, role: str, content: str) -> MessageSchema:
+        # Mapper de MessageSchema para MessageModel
+
+        message = MessageModel(
+            thread_id=thread_id,
+            role=role,
+            content=content
+        )
+
+        session.add(message)
+        await session.commit()
+        await session.refresh(message)
+        
+        # Mapper de MessageModel para MessageSchema
+        data_return = MessageSchema(
+            id=message.id,
+            thread_id=message.thread_id,
+            role=message.role,
+            created_at=message.created_at,
+            content=message.content
+        )
+        return data_return
 
     @staticmethod
     async def get_by_id(session: AsyncSession, id: uuid.UUID) -> Optional[MessageSchema]:

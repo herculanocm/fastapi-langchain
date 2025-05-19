@@ -1,21 +1,110 @@
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, HTTPException, status
 from core.services.connection_manager_service import ConnectionManagerService
 from core.deps import get_connection_manager
+from core.services.thread_service import ThreadService
+from core.deps import get_session, get_llm_service
+from sqlalchemy.ext.asyncio import AsyncSession
+from core.services.message_service import MessageService
+import uuid # Para validar o formato do thread_id se for UUID
+from core.configs import settings
+from core.llm import LLMService
+import logging
 
 router = APIRouter(
     prefix="/ws",
+    tags=["WebSocket Chat"],
 )
 
+@router.websocket("/chat/{thread_id}")
+async def websocket_chat_endpoint(
+    websocket: WebSocket,
+    thread_id: str,
+    manager: ConnectionManagerService = Depends(get_connection_manager),
+    session: AsyncSession = Depends(get_session),
+    llm_service: LLMService = Depends(get_llm_service),
+):
+    """
+    Endpoint WebSocket para chat dentro de uma thread específica.
+    O `thread_id` é o identificador único do negócio que agrupa as mensagens.
+    """
+    client_host = websocket.client.host
+    client_port = websocket.client.port
 
-@router.websocket("/chat/{email}/{thread_id}")
-async def websocket_endpoint(websocket: WebSocket, email: str, thread_id: str, manager: ConnectionManagerService = Depends(get_connection_manager)):
-    await manager.connect(websocket)
+    # Opcional: Validar o formato do thread_id (ex: se for UUID)
     try:
-        await websocket.send_text(f"Connected to chat thread {thread_id} as {email}")
+        uuid.UUID(thread_id) # Tenta converter para UUID, se falhar, é inválido
+    except ValueError:
+        logging.warning(f"Invalid thread_id format: {thread_id}. Closing connection for {client_host}:{client_port}.")
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION) # Código para violação de política
+        return
+
+    thread_exists = await ThreadService.get_by_id(session=session, id=uuid.UUID(thread_id))
+    if not thread_exists:
+        logging.warning(f"Thread '{thread_id}' not found. Closing connection for {client_host}:{client_port}.")
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
+    await manager.connect(websocket, thread_id)
+    try:
+        await MessageService.ensure_system_message(session=session, thread_id=thread_id)
+        # Enviar mensagem de boas-vindas ao usuário
+        await MessageService.create_message_by_thread_id(session=session, thread_id=thread_id, role="system", content=settings.START_MESSAGE.strip())
+        
+        await manager.send_personal_message(role="system", conteudo=settings.WELLCOME_MESSAGE.strip(), websocket=websocket)
+        # Notificar outros na thread que um novo usuário entrou (opcional)
+        await manager.broadcast_to_thread(role="server", conteudo= f"Usuário {client_host}:{client_port} entrou na thread.", thread_id=thread_id, sender=websocket)
+
         while True:
+
             data = await websocket.receive_text()
-            await websocket.send_text(f"Message text was: {data}")
+            logging.info(f"Mensagem recebida de {client_host}:{client_port} na thread '{thread_id}': {data}")
+            await MessageService.create_message_by_thread_id(session=session, thread_id=thread_id, role="user", content=data.strip())
+
+            history_message_model = await MessageService.list_by_thread_id(session=session, thread_id=thread_id)
+
+            lls_history_messages = MessageService.to_dict_list(history_message_model)
+
+            try:
+                resposta = await llm_service.ask_with_tools(lls_history_messages)
+                # Valide se 'resposta' e 'resposta["output"]' existem e são o esperado
+                if not isinstance(resposta, dict) or "output" not in resposta:
+                    # Adicionando log de erro para formato de resposta inesperado do LLM
+                    logging.error(f"Resposta do LLM em formato inesperado: {resposta}")
+                    raise ValueError("Resposta do LLM em formato inesperado.")
+                
+                await MessageService.create_message_by_thread_id(session=session, thread_id=thread_id, role="assistant", content=resposta["output"])
+                await manager.broadcast_to_thread(role="assistant", conteudo=resposta["output"], thread_id=thread_id) # Envia para todos, incluindo o remetente
+
+            except ValueError as ve: # Captura específica para o ValueError que criamos
+                logging.error(f"Erro de valor ao processar resposta do LLM: {ve}")
+                await manager.send_personal_message(role="server", conteudo= "Desculpe, ocorreu um erro ao processar a resposta do assistente. Por favor, tente novamente.", websocket=websocket)
+                continue
+            except Exception as llm_error:
+                logging.error(f"Erro ao interagir com LLM ou processar sua resposta: {llm_error}", exc_info=True)
+                await manager.send_personal_message(role="server", conteudo= f"Desculpe, ocorreu um erro ao tentar obter uma resposta do assistente. Por favor, tente novamente. (Erro: {str(llm_error)[:100]})", websocket=websocket)
+                continue # Permite que o usuário envie outra mensagem
+    
     except WebSocketDisconnect:
-        manager.disconnect(websocket)
+        logging.info(f"Client {client_host}:{client_port} desconectou da thread '{thread_id}'.")
+        # Notificar outros na thread que o usuário saiu (opcional)
+        await manager.broadcast_to_thread(role="server", conteudo=f"Usuário {client_host}:{client_port} saiu da thread.", thread_id=thread_id, sender=websocket)
     except Exception as e:
-        print(f"Error: {e}")
+        logging.error(f"Erro inesperado com o client {client_host}:{client_port} na thread '{thread_id}': {e}", exc_info=True)
+        # Tentar enviar uma mensagem de erro antes de fechar, se a conexão ainda permitir
+        try:
+            await websocket.send_text(f"Ocorreu um erro: {str(e)}. Desconectando.")
+        except Exception:
+            pass # Ignora se não conseguir enviar a mensagem de erro
+    finally:
+        # Garante que a desconexão seja registrada no manager
+        manager.disconnect(websocket, thread_id)
+        logging.info(f"Conexão limpa para {client_host}:{client_port} da thread '{thread_id}'.")
+
+
+@router.post("/chat/{thread_id}/close_all", status_code=status.HTTP_204_NO_CONTENT)
+async def close_all_thread_connections_endpoint(
+    thread_id: str,
+    manager: ConnectionManagerService = Depends(get_connection_manager)
+):
+    await manager.close_all_connections_for_thread(thread_id)
+    return
