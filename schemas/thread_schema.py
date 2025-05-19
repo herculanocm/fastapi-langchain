@@ -21,5 +21,10 @@ class ThreadMessageSchema(BaseModel):
     )
     subject: str = Field(..., title="Assunto da mensagem", min_length=5, max_length=255)
 
+    last_thread: Optional[bool] = Field(
+        default=False, 
+        title="Última mensagem do tópico"
+    )
+
     class Config:
         extra = "forbid" # Proíbe campos extras

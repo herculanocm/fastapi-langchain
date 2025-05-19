@@ -56,15 +56,24 @@ class ThreadService:
             .order_by(ThreadMessageModel.created_at)
         )
         list_result = result.scalars().all()
-        return [
-            ThreadMessageSchema(
-                id=thread.id,
-                user_id=thread.user_id,
-                created_at=thread.created_at,
-                updated_at=thread.updated_at,
-                subject=thread.subject
-            ) for thread in list_result
-        ]
+
+        list_return = []
+        if list_result is not None and len(list_result) > 0:
+            list_return = [
+                ThreadMessageSchema(
+                    id=thread.id,
+                    user_id=thread.user_id,
+                    created_at=thread.created_at,
+                    updated_at=thread.updated_at,
+                    subject=thread.subject
+                ) for thread in list_result
+            ]
+            # Marcando a última thread como True, primeiro realizo o sort por created_at e depois marco a última como True
+            list_return.sort(key=lambda x: x.created_at)
+            list_return[-1].last_thread = True
+
+        return list_return
+        
     
     @staticmethod
     async def update_subject(session: AsyncSession, id: uuid.UUID, new_subject: str) -> Optional[ThreadMessageSchema]:

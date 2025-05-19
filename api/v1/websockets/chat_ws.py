@@ -48,9 +48,9 @@ async def websocket_chat_endpoint(
     try:
         await MessageService.ensure_system_message(session=session, thread_id=thread_id)
         # Enviar mensagem de boas-vindas ao usuário
-        await MessageService.create_message_by_thread_id(session=session, thread_id=thread_id, role="system", content=settings.START_MESSAGE.strip())
+        # await MessageService.create_message_by_thread_id(session=session, thread_id=thread_id, role="system", content=settings.START_MESSAGE.strip())
         
-        await manager.send_personal_message(role="system", conteudo=settings.WELLCOME_MESSAGE.strip(), websocket=websocket)
+        await manager.send_personal_message(role="server", conteudo=settings.WELLCOME_MESSAGE.strip(), websocket=websocket)
         # Notificar outros na thread que um novo usuário entrou (opcional)
         await manager.broadcast_to_thread(role="server", conteudo= f"Usuário {client_host}:{client_port} entrou na thread.", thread_id=thread_id, sender=websocket)
 

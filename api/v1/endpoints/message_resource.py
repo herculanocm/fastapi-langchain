@@ -12,7 +12,7 @@ router = APIRouter(
 
 # Get all messages by thread_id
 @router.get(
-    "/message/{thread_id}",
+    "/message/thread/{thread_id}",
     response_model=List[MessageSchema],
     status_code=status.HTTP_200_OK
 )
