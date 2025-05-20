@@ -7,6 +7,16 @@ from core.configs import settings
 async def datahub_schema_search(question: str) -> str:
     """
     Usa GraphQL para buscar datasets e campos no DataHub com base no termo de busca fornecido.
+    ### Como usar a ferramenta:
+
+    - Utilize **termos descritivos** relacionados a tabelas, colunas, TAGs, dados ou domínios de negócio.
+    - O campo de busca aceita **termos simples**, **frases**, ou **buscas compostas** com operadores como AND, OR, NOT e wildcards (como `clientes*`).
+    - Exemplos de termos válidos:
+    - `"clientes"`
+    - `"vendas AND 2023"`
+    - `"transacoes NOT canceladas"`
+    - `"\"usuarios ativos\""`
+    - `"clientes*"`
     """
     return await datahub_schema_search_logic_list(question)
 

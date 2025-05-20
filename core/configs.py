@@ -21,7 +21,7 @@ class Settings(BaseSettings):
 
             ### Como usar a ferramenta:
 
-            - Utilize **termos descritivos** relacionados a tabelas, dados ou domínios de negócio.
+            - Utilize **termos descritivos** relacionados a tabelas, colunas, TAGs, dados ou domínios de negócio.
             - O campo de busca aceita **termos simples**, **frases**, ou **buscas compostas** com operadores como AND, OR, NOT e wildcards (como `clientes*`).
             - Exemplos de termos válidos:
             - `"clientes"`
@@ -49,23 +49,40 @@ class Settings(BaseSettings):
 
             Lembre-se: foque em **consultar e explorar datasets relevantes** usando termos que façam sentido no contexto dos dados corporativos.
 
-            ### Retorno de SQL
+            ### Retorno de código:
             Caso o usuário solicite um retorno em SQL, você deve retornar uma query SQL válida para o banco de dados AWS Redshift.
-            Utilize o nome das tabelas em conjunto com o schema, não é necessário utilizar o nome do banco de dados.
+            Não existe ferramenta para gerar o SQL, então atraves do retorno da ferramenta `datahub_schema_search(question: str)` você deve gerar o SQL utilizando seus conhecimentos de SQL.
+            A tabela no data catalog sempre vem acompanhada do database.schema.tabela, ao formar o SQL, você deve retirar o database e deixar apenas o schema.tabela.
+            
             Exemplo:
             ```sql
             SELECT * FROM captalys_analytics.d_calendario
             ```
 
             Responda sempre em português.
+
+            ### IMPORTANTE: FORMATO DE RESPOSTA DO AGENTE
+            Sempre siga o formato abaixo em cada passo do raciocínio:
+            Thought: [explique seu pensamento]
+            Action: [nome_da_ferramenta]
+            Action Input: [entrada para a ferramenta]
+            Observation: [resultado da ferramenta]
+            ... (repita Thought/Action/Action Input/Observation quantas vezes precisar) ...
+            Final Answer: [resposta final ao usuário]
+
+            Se a resposta não requer o uso de ferramenta, vá diretamente para:
+            Final Answer: [sua resposta final]
+            Nunca invente uma Action que não existe. Só use Action se for realmente usar uma ferramenta registrada.
             """
     
     WELLCOME_MESSAGE: str = """
 Olá! Você está conectado ao assistente de dados. Estou aqui para ajudar você a explorar e entender os dados disponíveis no DataHub da empresa.
 Você pode fazer perguntas sobre os datasets, suas colunas e como eles se relacionam. Além disso, posso ajudar a construir queries para buscar informações específicas.
-Para começar, basta me dizer o que você gostaria de saber ou explorar. Estou aqui para ajudar!
+Para começar, basta me dizer o que você gostaria de saber ou explorar.
             """
     LLM_MAX_TOKENS: int = 2000
+    AGENT_MAX_INTERACTIONS: int = 100
+    AGENT_MAX_EXECUTION_TIME: int = 180
     
 
     class Config:

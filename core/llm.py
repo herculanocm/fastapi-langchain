@@ -2,7 +2,7 @@ from langchain_openai import ChatOpenAI
 from langchain.agents import AgentExecutor, initialize_agent, AgentType
 from langchain_openai import ChatOpenAI
 from core.llm_tool_datahub import datahub_schema_search_logic,datahub_schema_search
-from langchain.prompts import ChatPromptTemplate
+from core.configs import settings
 
 class LLMService:
     def __init__(self, model: str, api_key: str, temperature: float = 0.7):
@@ -27,6 +27,8 @@ class LLMService:
                 verbose=True,
                 # adding handle_parsing_errors=True
                 handle_parsing_errors=True,
+                max_iterations=settings.AGENT_MAX_INTERACTIONS,
+                max_execution_time=settings.AGENT_MAX_EXECUTION_TIME
             )
 
 

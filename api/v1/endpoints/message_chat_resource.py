@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends
-from core.deps import get_llm_service, get_session
+from core.deps import get_llm_service, get_session, get_async_agent_service
 from core.llm import LLMService
+from core.services.agent_service import AsyncAgentService
 from models.question import QuestionInput
 from sqlalchemy.ext.asyncio import AsyncSession
 from core.services.message_service import MessageService
@@ -50,3 +51,16 @@ async def chat_question(
     )
 
     return {"resposta": resposta["output"]}
+
+@router.post(
+    "/chat/question-graph",
+    summary="Chat with LLM and Graph",
+)
+async def chat_question(
+    input: QuestionInput,
+    async_agent_service: AsyncAgentService = Depends(get_async_agent_service),
+    session: AsyncSession = Depends(get_session)
+):
+    
+    resposta = await async_agent_service.run(input.question, [])
+    return {"resposta": resposta}
