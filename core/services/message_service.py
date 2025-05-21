@@ -34,6 +34,23 @@ class MessageService:
         return data_return
     
     @staticmethod
+    async def save_messages(session: AsyncSession, messages: List[MessageSchema]):
+        """
+        Salva uma lista de mensagens no banco de dados.
+        """
+        message_models = [
+            MessageModel(
+                thread_id=message.thread_id,
+                role=message.role,
+                content=message.content
+            )
+            for message in messages
+        ]
+
+        session.add_all(message_models)
+        await session.commit()
+
+    @staticmethod
     async def create_message_by_thread_id(session: AsyncSession, thread_id: uuid.UUID, role: str, content: str) -> MessageSchema:
         # Mapper de MessageSchema para MessageModel
 

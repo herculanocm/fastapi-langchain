@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends
 from core.deps import get_llm_service, get_session, get_async_agent_service
 from core.llm import LLMService
-from core.services.agent_service import AsyncAgentService
+from core.services.aync_agent_service import AsyncAgentService
 from models.question import QuestionInput
 from sqlalchemy.ext.asyncio import AsyncSession
 from core.services.message_service import MessageService

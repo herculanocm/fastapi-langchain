@@ -2,13 +2,16 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, HTTPExce
 from core.services.connection_manager_service import ConnectionManagerService
 from core.deps import get_connection_manager
 from core.services.thread_service import ThreadService
-from core.deps import get_session, get_llm_service
+from core.deps import get_session, get_async_agent_service
 from sqlalchemy.ext.asyncio import AsyncSession
 from core.services.message_service import MessageService
 import uuid # Para validar o formato do thread_id se for UUID
 from core.configs import settings
 from core.llm import LLMService
 import logging
+from core.services.aync_agent_service import AsyncAgentService
+from schemas.message_schema import MessageSchema
+from typing import Optional, List
 
 router = APIRouter(
     prefix="/ws",
@@ -21,7 +24,7 @@ async def websocket_chat_endpoint(
     thread_id: str,
     manager: ConnectionManagerService = Depends(get_connection_manager),
     session: AsyncSession = Depends(get_session),
-    llm_service: LLMService = Depends(get_llm_service),
+    async_agent_service: AsyncAgentService = Depends(get_async_agent_service),
 ):
     """
     Endpoint WebSocket para chat dentro de uma thread específica.
@@ -46,7 +49,7 @@ async def websocket_chat_endpoint(
 
     await manager.connect(websocket, thread_id)
     try:
-        await MessageService.ensure_system_message(session=session, thread_id=thread_id)
+        # await MessageService.ensure_system_message(session=session, thread_id=thread_id)
         # Enviar mensagem de boas-vindas ao usuário
         # await MessageService.create_message_by_thread_id(session=session, thread_id=thread_id, role="system", content=settings.START_MESSAGE.strip())
         
@@ -58,22 +61,30 @@ async def websocket_chat_endpoint(
 
             data = await websocket.receive_text()
             logging.info(f"Mensagem recebida de {client_host}:{client_port} na thread '{thread_id}': {data}")
-            await MessageService.create_message_by_thread_id(session=session, thread_id=thread_id, role="user", content=data.strip())
+            #await MessageService.create_message_by_thread_id(session=session, thread_id=thread_id, role="user", content=data.strip())
 
             history_message_model = await MessageService.list_by_thread_id(session=session, thread_id=thread_id)
 
             lls_history_messages = MessageService.to_dict_list(history_message_model)
 
             try:
-                resposta = await llm_service.ask_with_tools(lls_history_messages)
+                resposta = await async_agent_service.run(data.strip(), lls_history_messages)
                 # Valide se 'resposta' e 'resposta["output"]' existem e são o esperado
-                if not isinstance(resposta, dict) or "output" not in resposta:
+                if resposta is None or 'error' in resposta:
                     # Adicionando log de erro para formato de resposta inesperado do LLM
                     logging.error(f"Resposta do LLM em formato inesperado: {resposta}")
                     raise ValueError("Resposta do LLM em formato inesperado.")
                 
-                await MessageService.create_message_by_thread_id(session=session, thread_id=thread_id, role="assistant", content=resposta["output"])
-                await manager.broadcast_to_thread(role="assistant", conteudo=resposta["output"], thread_id=thread_id) # Envia para todos, incluindo o remetente
+                
+                # await MessageService.create_message_by_thread_id(session=session, thread_id=thread_id, role="user", content=data.strip())
+                # await MessageService.create_message_by_thread_id(session=session, thread_id=thread_id, role="assistant", content=resposta)
+                list_user_and_assistant_messages: List[MessageSchema] = []
+                list_user_and_assistant_messages.append(MessageSchema(role="user", content=data.strip(), thread_id=thread_id))
+                list_user_and_assistant_messages.append(MessageSchema(role="assistant", content=resposta, thread_id=thread_id))
+                #salvando na base
+                await MessageService.save_messages(session=session, messages=list_user_and_assistant_messages)
+
+                await manager.broadcast_to_thread(role="assistant", conteudo=resposta, thread_id=thread_id) # Envia para todos, incluindo o remetente
 
             except ValueError as ve: # Captura específica para o ValueError que criamos
                 logging.error(f"Erro de valor ao processar resposta do LLM: {ve}")
@@ -99,6 +110,8 @@ async def websocket_chat_endpoint(
         # Garante que a desconexão seja registrada no manager
         manager.disconnect(websocket, thread_id)
         logging.info(f"Conexão limpa para {client_host}:{client_port} da thread '{thread_id}'.")
+
+
 
 
 @router.post("/chat/{thread_id}/close_all", status_code=status.HTTP_204_NO_CONTENT)

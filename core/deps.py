@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import HTTPException
 from core.database import Session
 from core.llm import LLMService
-from core.services.agent_service import AsyncAgentService
+from core.services.aync_agent_service import AsyncAgentService
 from core.configs import settings
 from core.services.connection_manager_service import ConnectionManagerService
 
