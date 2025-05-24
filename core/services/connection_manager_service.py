@@ -3,43 +3,44 @@ from collections import defaultdict
 from typing import Dict, List
 from schemas.message_ws import MessageWS
 import logging
+from schemas.message_schema import MessageSchema
 
 class ConnectionManagerService:
     def __init__(self):
-        # Armazena conexões ativas, agrupadas por thread_id
-        # Ex: {"thread_id_1": [websocket1, websocket2], "thread_id_2": [websocket3]}
-        self.active_connections: Dict[str, List[WebSocket]] = defaultdict(list)
+        # Usa set para garantir unicidade e facilitar remoção
+        self.active_connections: Dict[str, set] = defaultdict(set)
 
     async def connect(self, websocket: WebSocket, thread_id: str):
         """Registra uma nova conexão WebSocket para uma thread específica."""
         await websocket.accept()
-        self.active_connections[thread_id].append(websocket)
+        self.active_connections[thread_id].add(websocket)
         logging.info(f"WebSocket {websocket.client.host}:{websocket.client.port} connected to thread '{thread_id}'.")
 
     def disconnect(self, websocket: WebSocket, thread_id: str):
         """Remove uma conexão WebSocket de uma thread específica."""
         if thread_id in self.active_connections:
             try:
-                self.active_connections[thread_id].remove(websocket)
+                self.active_connections[thread_id].discard(websocket)
                 logging.info(f"WebSocket {websocket.client.host}:{websocket.client.port} disconnected from thread '{thread_id}'.")
                 # Se não houver mais conexões na thread, remove a entrada do dicionário para economizar memória
                 if not self.active_connections[thread_id]:
                     del self.active_connections[thread_id]
                     logging.info(f"Thread '{thread_id}' is now empty and removed from active connections.")
-            except ValueError:
-                # Ocorre se o websocket já foi removido ou não estava na lista
-                logging.warning(f"WebSocket {websocket.client.host}:{websocket.client.port} not found in thread '{thread_id}' for disconnection.")
-                pass
+            except Exception as e:
+                logging.warning(f"Error on disconnect: {e}")
 
-    async def send_personal_message(self, role: str, conteudo: str, websocket: WebSocket):
+    async def send_personal_message(self, role: str, conteudo, websocket: WebSocket):
         """Envia uma mensagem para um WebSocket específico."""
-        try:
+        if isinstance(conteudo, str):
             message = MessageWS(role=role, content=conteudo)
+        elif isinstance(conteudo, MessageSchema):
+            message = MessageWS(id=str(conteudo.id), thread_id=str(conteudo.thread_id), role=conteudo.role, created_at=str(conteudo.created_at), content=conteudo.content)
+
+        try:
             await websocket.send_json(message.model_dump())
         except Exception as e:
             # Lidar com o caso de o websocket não estar mais ativo
             logging.error(f"Error sending personal message to {websocket.client.host}:{websocket.client.port}: {e}")
-            # Considerar remover a conexão se estiver quebrada, embora disconnect deva cuidar disso
 
     async def broadcast_to_thread(self, role: str, conteudo: str, thread_id: str, sender: WebSocket = None):
         """Envia uma mensagem para todos os WebSockets conectados a uma thread específica, opcionalmente excluindo o remetente."""
@@ -84,3 +85,6 @@ class ConnectionManagerService:
         """Fecha todas as conexões ativas e limpa o gerenciador."""
         await self.close_all_connections()
         logging.info("Connection manager closed and all connections cleaned up.")
+
+# Criando um singleton único para o ConnectionManagerService
+connection_manager_instance = ConnectionManagerService()

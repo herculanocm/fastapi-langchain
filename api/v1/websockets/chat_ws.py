@@ -13,6 +13,8 @@ from core.services.aync_agent_service import AsyncAgentService
 from schemas.message_schema import MessageSchema
 from typing import Optional, List
 
+
+
 router = APIRouter(
     prefix="/ws",
     tags=["WebSocket Chat"],
@@ -49,22 +51,22 @@ async def websocket_chat_endpoint(
 
     await manager.connect(websocket, thread_id)
     try:
-        # await MessageService.ensure_system_message(session=session, thread_id=thread_id)
-        # Enviar mensagem de boas-vindas ao usuário
-        # await MessageService.create_message_by_thread_id(session=session, thread_id=thread_id, role="system", content=settings.START_MESSAGE.strip())
         
-        await manager.send_personal_message(role="server", conteudo=settings.WELLCOME_MESSAGE.strip(), websocket=websocket)
         # Notificar outros na thread que um novo usuário entrou (opcional)
         await manager.broadcast_to_thread(role="server", conteudo= f"Usuário {client_host}:{client_port} entrou na thread.", thread_id=thread_id, sender=websocket)
+
+        primeira_msg_thread = await MessageService.first_msg_thread(session=session, thread_id=thread_id)
+        if primeira_msg_thread is None:
+            await manager.send_personal_message(role="server", conteudo=settings.WELLCOME_MESSAGE.strip(), websocket=websocket)
 
         while True:
 
             data = await websocket.receive_text()
             logging.info(f"Mensagem recebida de {client_host}:{client_port} na thread '{thread_id}': {data}")
-            #await MessageService.create_message_by_thread_id(session=session, thread_id=thread_id, role="user", content=data.strip())
+            user_message = await MessageService.create_message_by_thread_id(session=session, thread_id=thread_id, role="user", content=data.strip())
+            await manager.send_personal_message(role="user", conteudo=user_message, websocket=websocket)
 
-            history_message_model = await MessageService.list_by_thread_id(session=session, thread_id=thread_id)
-
+            history_message_model = await MessageService.list_by_thread_id_without_message_id(session=session, thread_id=thread_id, message_id=user_message.id)
             lls_history_messages = MessageService.to_dict_list(history_message_model)
 
             try:
@@ -75,21 +77,18 @@ async def websocket_chat_endpoint(
                     logging.error(f"Resposta do LLM em formato inesperado: {resposta}")
                     raise ValueError("Resposta do LLM em formato inesperado.")
                 
-                
-                # await MessageService.create_message_by_thread_id(session=session, thread_id=thread_id, role="user", content=data.strip())
-                # await MessageService.create_message_by_thread_id(session=session, thread_id=thread_id, role="assistant", content=resposta)
-                list_user_and_assistant_messages: List[MessageSchema] = []
-                list_user_and_assistant_messages.append(MessageSchema(role="user", content=data.strip(), thread_id=thread_id))
-                list_user_and_assistant_messages.append(MessageSchema(role="assistant", content=resposta, thread_id=thread_id))
-                #salvando na base
-                await MessageService.save_messages(session=session, messages=list_user_and_assistant_messages)
+                agent_message = await MessageService.create_message_by_thread_id(session=session, thread_id=thread_id, role="assistant", content=resposta)
 
-                await manager.broadcast_to_thread(role="assistant", conteudo=resposta, thread_id=thread_id) # Envia para todos, incluindo o remetente
+
+                # Enviando mensaguem para o usuário da thread e do websocket
+                await manager.send_personal_message(role="assistant", conteudo=agent_message, websocket=websocket) # Envia apenas para o usuário conectado
+
 
             except ValueError as ve: # Captura específica para o ValueError que criamos
                 logging.error(f"Erro de valor ao processar resposta do LLM: {ve}")
                 await manager.send_personal_message(role="server", conteudo= "Desculpe, ocorreu um erro ao processar a resposta do assistente. Por favor, tente novamente.", websocket=websocket)
                 continue
+
             except Exception as llm_error:
                 logging.error(f"Erro ao interagir com LLM ou processar sua resposta: {llm_error}", exc_info=True)
                 await manager.send_personal_message(role="server", conteudo= f"Desculpe, ocorreu um erro ao tentar obter uma resposta do assistente. Por favor, tente novamente. (Erro: {str(llm_error)[:100]})", websocket=websocket)

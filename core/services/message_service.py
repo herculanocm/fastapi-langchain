@@ -110,6 +110,43 @@ class MessageService:
             )
             for message in list_result
         ]
+    
+    @staticmethod
+    async def list_by_thread_id_without_message_id(session: AsyncSession, thread_id: uuid.UUID, message_id: uuid.UUID) -> List[MessageModel]:
+        result = await session.execute(
+            select(MessageModel)
+            .where(
+                (MessageModel.thread_id == thread_id) & (MessageModel.id != message_id)
+            )
+            .order_by(MessageModel.created_at)
+        )
+        list_result = result.scalars().all()
+        return [
+            MessageSchema(
+                id=message.id,
+                thread_id=message.thread_id,
+                role=message.role,
+                created_at=message.created_at,
+                content=message.content
+            )
+            for message in list_result
+        ]
+    
+    # verifica se existe alguma mensagem na thread, se não existir retorna True, caso contrário False
+    @staticmethod
+    async def first_msg_thread(session: AsyncSession, thread_id: uuid.UUID) -> Optional[MessageModel]:
+        # otimizando consulta, select 1 limit 1, apenas para checar se existe msg
+        result = await session.execute(
+            select(MessageModel)
+            .where(
+                MessageModel.thread_id == thread_id
+            )
+            .limit(1)
+        )
+        first_result = result.scalars().first()
+        if first_result:
+            return False
+        return True
 
 
     @staticmethod

@@ -5,7 +5,7 @@ from core.database import Session
 from core.llm import LLMService
 from core.services.aync_agent_service import AsyncAgentService
 from core.configs import settings
-from core.services.connection_manager_service import ConnectionManagerService
+from core.services.connection_manager_service import connection_manager_instance, ConnectionManagerService
 
 async def get_session() -> AsyncGenerator[AsyncSession, None]:
     session: AsyncSession = Session()
@@ -61,10 +61,4 @@ async def get_async_agent_service() -> AsyncGenerator[AsyncAgentService, None]:
         await get_agent_service.close()
 
 async def get_connection_manager() -> AsyncGenerator[ConnectionManagerService, None]:
-    connection_manager = ConnectionManagerService()
-    try:
-        yield connection_manager
-    except Exception as e:
-        print(f"Error: {e}")
-    finally:
-        await connection_manager.close()
+    yield connection_manager_instance

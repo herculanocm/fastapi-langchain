@@ -49,13 +49,19 @@ def truncate_messages_openai(system_prompt: dict, historico: list, user_question
 
     
     max_history_tokens = token_limit - question_tokens
+
+    if max_history_tokens <= 0:
+        return []
+
+
     # reduz o histórico para o número máximo de tokens permitido
     truncated_history = []
     for message in reversed(historico):
         message_tokens = count_tokens_openai([message])
+        history_tokens = count_tokens_openai(truncated_history)
+
         if history_tokens + message_tokens <= max_history_tokens:
             truncated_history.append(message)
-            history_tokens += message_tokens
         else:
             break
     # inverte a lista de mensagens truncadas para manter a ordem original
@@ -82,13 +88,16 @@ def truncate_messages_llama(system_prompt: dict, historico: list, user_question:
 
     
     max_history_tokens = token_limit - question_tokens
+
+    if max_history_tokens <= 0:
+        return []
     # reduz o histórico para o número máximo de tokens permitido
     truncated_history = []
     for message in reversed(historico):
         message_tokens = count_words([message])
+        history_tokens = count_words(truncated_history)
         if history_tokens + message_tokens <= max_history_tokens:
             truncated_history.append(message)
-            history_tokens += message_tokens
         else:
             break
     # inverte a lista de mensagens truncadas para manter a ordem original
