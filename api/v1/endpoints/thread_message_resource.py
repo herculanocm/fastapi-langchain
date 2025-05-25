@@ -1,10 +1,13 @@
 from fastapi import APIRouter, Depends, status, HTTPException
-from core.deps import get_session
+from core.deps import get_session, get_async_agent_service
 from sqlalchemy.ext.asyncio import AsyncSession
 from core.services.thread_service import ThreadService
 from schemas.thread_schema import ThreadMessageSchema
+from core.services.aync_agent_service import AsyncAgentService
+from core.services.message_service import MessageService
 from typing import List
 import uuid
+
 
 router = APIRouter(
     tags=["Thread Message"],
@@ -74,6 +77,7 @@ async def list_thread_messages_by_user(
     Retorna todas as mensagens de thread de um usuário.
     """
     try:
+        # sleep for 1 second to simulate a delay    
         result = await ThreadService.list_by_user(session=session, user_id=user_id)
         return result
     except Exception as e:
@@ -122,26 +126,35 @@ async def delete_thread_message(
     
 # Update the subject of a thread message
 @router.put(
-    "/thread-message/{id}",
+    "/thread-message/{id}/agent",
     response_model=ThreadMessageSchema,
     status_code=status.HTTP_200_OK
 )
-async def update_thread_message_subject(
+async def update_thread_message_subject_using_agent(
     id: uuid.UUID,
-    new_subject: str,
-    session: AsyncSession = Depends(get_session)
+    session: AsyncSession = Depends(get_session),
+    async_agent_service: AsyncAgentService = Depends(get_async_agent_service),
 ):
     """
-    Atualiza o assunto de uma mensagem de thread pelo ID.
+    Atualiza o assunto de uma mensagem de thread pelo ID usando o agente.
     """
 
     try:
-        result = await ThreadService.update_subject(session=session, id=id, new_subject=new_subject)
-        if not result:
+        threadMessage = await ThreadService.get_by_id(session=session, id=id)
+        if not threadMessage:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Thread message not found"
             )
+        
+
+        history_message_model = await MessageService.list_by_thread_id(session=session, thread_id=threadMessage.id)
+        lls_history_messages = MessageService.to_dict_list(history_message_model)
+
+        new_subject = await async_agent_service.resume_messages_to_subject(messages=lls_history_messages)
+        
+        result = await ThreadService.update_subject(session=session, id=threadMessage.id, new_subject=new_subject)
+        
         return result
     except HTTPException as exc:  # Captura HTTPException especificamente
         raise exc  # Re-levanta a HTTPException original (seja 404, 422, etc.)

@@ -15,7 +15,8 @@ class ThreadService:
         # Mapper de ThreadMessageSchema para ThreadMessageModel
         thread = ThreadMessageModel(
             user_id=data.user_id,
-            subject=data.subject
+            subject=data.subject,
+            qtd_subject_updated=0
         )
 
         session.add(thread)
@@ -28,7 +29,8 @@ class ThreadService:
             user_id=thread.user_id,
             created_at=thread.created_at,
             updated_at=thread.updated_at,
-            subject=thread.subject
+            subject=thread.subject,
+            qtd_subject_updated=thread.qtd_subject_updated
         )
         return data_return 
 
@@ -44,7 +46,8 @@ class ThreadService:
                 user_id=first_result.user_id,
                 created_at=first_result.created_at,
                 updated_at=first_result.updated_at,
-                subject=first_result.subject
+                subject=first_result.subject,
+                qtd_subject_updated=first_result.qtd_subject_updated
             )
         return None
 
@@ -65,7 +68,8 @@ class ThreadService:
                     user_id=thread.user_id,
                     created_at=thread.created_at,
                     updated_at=thread.updated_at,
-                    subject=thread.subject
+                    subject=thread.subject,
+                    qtd_subject_updated=thread.qtd_subject_updated
                 ) for thread in list_result
             ]
             # Marcando a última thread como True, primeiro realizo o sort por created_at e depois marco a última como True
@@ -84,6 +88,7 @@ class ThreadService:
         if thread:
             thread.subject = new_subject
             thread.updated_at = now_sp()
+            thread.qtd_subject_updated += 1
             await session.commit()
             await session.refresh(thread)
             return ThreadMessageSchema(
@@ -91,7 +96,8 @@ class ThreadService:
                 user_id=thread.user_id,
                 created_at=thread.created_at,
                 updated_at=thread.updated_at,
-                subject=thread.subject
+                subject=thread.subject,
+                qtd_subject_updated=thread.qtd_subject_updated
             )
         return None
     

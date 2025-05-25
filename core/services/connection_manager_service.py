@@ -29,7 +29,7 @@ class ConnectionManagerService:
             except Exception as e:
                 logging.warning(f"Error on disconnect: {e}")
 
-    async def send_personal_message(self, role: str, conteudo, websocket: WebSocket):
+    async def send_personal_message(self, role, conteudo, websocket: WebSocket):
         """Envia uma mensagem para um WebSocket específico."""
         if isinstance(conteudo, str):
             message = MessageWS(role=role, content=conteudo)

@@ -29,3 +29,4 @@ class ThreadMessageModel(SQLModel, table=True):
     created_at: Optional[datetime] = Field(default_factory=now_sp, sa_column=sa.Column("thr_dt_created_at",sa.DateTime, server_default=sa.func.now()))
     updated_at: Optional[datetime] = Field(default_factory=now_sp, sa_column=sa.Column("thr_dt_updated_at", sa.DateTime, server_default=sa.func.now()))
     subject: Optional[str] = Field(sa_column=sa.Column("thr_tx_subject", sa.String(255)))
+    qtd_subject_updated: Optional[int] = Field(sa_column=sa.Column("thr_qt_subject_updated", sa.Integer, default=0))

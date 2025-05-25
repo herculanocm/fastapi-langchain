@@ -29,6 +29,37 @@ def count_words(messages):
         return 0
     return sum(len(str(msg.get("content", "")).split()) for msg in messages)
 
+def truncate_messages_openai_for_subject(system_prompt: dict, historico: list, user_question: dict, token_limit: int, reserve_tokens_response=2000):
+    # Se o histórico estiver vazio, não há necessidade de truncar
+    if not historico:
+        return historico
+
+    system_prompt_tokens = count_tokens_openai([system_prompt])
+    user_question_tokens = count_tokens_openai([user_question])
+    history_tokens = count_tokens_openai(historico)
+    total_tokens = system_prompt_tokens + user_question_tokens + history_tokens + reserve_tokens_response
+    if total_tokens <= token_limit:
+        return historico
+    
+    # Se o total de tokens exceder o limite, reduz o histórico
+    max_history_tokens = token_limit - system_prompt_tokens - user_question_tokens - reserve_tokens_response
+    if max_history_tokens <= 0:
+        return []
+    
+    # reduz o histórico para o número máximo de tokens permitido
+    truncated_history = []
+    # Para o metodo subject não é necessário inverter a ordem
+    for message in historico:
+        message_tokens = count_tokens_openai([message])
+        history_tokens = count_tokens_openai(truncated_history)
+        if history_tokens + message_tokens <= max_history_tokens:
+            truncated_history.append(message)
+        else:
+            break
+    # não inverte a lista de mensagens truncadas para manter a ordem original
+    return truncated_history
+    
+
 def truncate_messages_openai(system_prompt: dict, historico: list, user_question: dict, assistant_message: dict, modelo: str, token_limit: int, reserve_tokens_response=2000):
 
     qtd_tokens_assistant_message = 0
@@ -344,6 +375,50 @@ class AsyncAgentService:
         logging.info(f"Action final: {state_final.get('action')}")
         logging.info(f"Action input final: {state_final.get('action_input')}")
         return state_final["response"]
+    
+    async def resume_messages_to_subject(self, messages: list) -> str:
+        logging.info("Resumindo mensagens para assunto (resume_messages_to_subject)")
+        # Resumir as mensagens para criar um assunto
+        system_prompt = {
+            "role": "system",
+            "content": """
+                Você é um assistente especializado em resumo de mensagens.
+                Sua tarefa é resumir as mensagens fornecidas e criar um assunto claro e conciso.
+
+                Regras:
+                - Analise cuidadosamente o conteúdo das mensagens.
+                - Crie um resumo claro e conciso que capture os principais pontos discutidos.
+                - O assunto deve ser curto, direto e refletir o conteúdo das mensagens.
+                - O resumo deve ser no maximo 255 caracteres.
+                - Sempre responda em português.
+                - A sua resposta deve conter apenas o assunto, sem explicações adicionais.
+                - Se não houver mensagens, responda com "Sem assunto".
+            """
+        }
+        user_question = {"role": "user", "content": "Crie um assunto para as mensagens abaixo:"}
+
+        fake_answer_response_255 = '' * 255
+        reserved_answer_tokens = count_tokens_openai(fake_answer_response_255) + 500 # 500 tokens de reserva
+        history_message_truncated = truncate_messages_openai_for_subject(system_prompt=system_prompt, historico=messages, user_question=user_question, token_limit=self.token_limit, reserve_tokens_response=reserved_answer_tokens)
+
+        # Adicionando ao user_question o histórico truncado
+        user_question["content"] = user_question["content"] + "\n" + str(history_message_truncated)
+
+        # Adiciona o prompt ao inicio do histórico
+        prompt_messages = [system_prompt] + [user_question]
+
+        response = await self.client.ainvoke(prompt_messages)
+        logging.debug(f"Resposta final do LLM: {response}")
+
+        if hasattr(response, "content"):
+            return response.content
+        elif isinstance(response, str):
+            return response
+        elif isinstance(response, dict):
+            return response.get("content", "")
+        else:
+            return 'Novo assunto'
+
 
     # Bypass para metodo close
     async def close(self):

@@ -26,5 +26,15 @@ class ThreadMessageSchema(BaseModel):
         title="Última mensagem do tópico"
     )
 
+    current_thread: Optional[bool] = Field(
+        default=False, 
+        title="Mensagem atual do tópico, em utilização"
+    )
+
+    qtd_subject_updated: Optional[int] = Field(
+        default=0, 
+        title="Quantidade de vezes que o assunto foi atualizado"
+    )
+
     class Config:
         extra = "forbid" # Proíbe campos extras

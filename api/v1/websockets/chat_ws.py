@@ -1,4 +1,4 @@
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, HTTPException, status
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, status
 from core.services.connection_manager_service import ConnectionManagerService
 from core.deps import get_connection_manager
 from core.services.thread_service import ThreadService
@@ -7,11 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.services.message_service import MessageService
 import uuid # Para validar o formato do thread_id se for UUID
 from core.configs import settings
-from core.llm import LLMService
 import logging
 from core.services.aync_agent_service import AsyncAgentService
-from schemas.message_schema import MessageSchema
-from typing import Optional, List
 
 
 
@@ -56,21 +53,26 @@ async def websocket_chat_endpoint(
         await manager.broadcast_to_thread(role="server", conteudo= f"Usuário {client_host}:{client_port} entrou na thread.", thread_id=thread_id, sender=websocket)
 
         primeira_msg_thread = await MessageService.first_msg_thread(session=session, thread_id=thread_id)
-        if primeira_msg_thread is None:
+        if primeira_msg_thread:
             await manager.send_personal_message(role="server", conteudo=settings.WELLCOME_MESSAGE.strip(), websocket=websocket)
 
         while True:
 
-            data = await websocket.receive_text()
-            logging.info(f"Mensagem recebida de {client_host}:{client_port} na thread '{thread_id}': {data}")
-            user_message = await MessageService.create_message_by_thread_id(session=session, thread_id=thread_id, role="user", content=data.strip())
+            raw_data = await websocket.receive_text()
+            # Removendo double quotes do receive_text 
+                  
+            # Remove aspas duplas do início e do fim, se presentes
+            msg_user = raw_data.strip('"') 
+
+            logging.info(f"Mensagem recebida de {client_host}:{client_port} na thread '{thread_id}': {msg_user}")
+            user_message = await MessageService.create_message_by_thread_id(session=session, thread_id=thread_id, role="user", content=msg_user.strip())
             await manager.send_personal_message(role="user", conteudo=user_message, websocket=websocket)
 
             history_message_model = await MessageService.list_by_thread_id_without_message_id(session=session, thread_id=thread_id, message_id=user_message.id)
             lls_history_messages = MessageService.to_dict_list(history_message_model)
 
             try:
-                resposta = await async_agent_service.run(data.strip(), lls_history_messages)
+                resposta = await async_agent_service.run(msg_user.strip(), lls_history_messages)
                 # Valide se 'resposta' e 'resposta["output"]' existem e são o esperado
                 if resposta is None or 'error' in resposta:
                     # Adicionando log de erro para formato de resposta inesperado do LLM
