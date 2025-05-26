@@ -3,144 +3,20 @@ from langgraph.graph import StateGraph, END
 from core.llm_tool_datahub import datahub_schema_search_logic_list
 from langchain_core.runnables import RunnableLambda
 from typing import TypedDict
+import core.services.openai_agent_utils as openai_utils
+import core.services.llama_agent_utils as llama_utils
+import core.services.agent_utils as agent_utils
 import logging
 import json
-from langchain_ollama import ChatOllama
-import tiktoken
 
 
-def count_tokens_openai(messages, model="gpt-4o-mini"):
-    # or none
-    if messages is None or len(messages) == 0:
-        return 0
-    
-    enc = tiktoken.encoding_for_model(model)
-    num_tokens = 0
-    for message in messages:
-        # Cada mensagem tem role e content
-        num_tokens += 4  # tokens de formatação
-        for key, value in message.items():
-            num_tokens += len(enc.encode(str(value)))
-    num_tokens += 2  # priming
-    return num_tokens
 
-def count_words(messages):
-    if messages is None or len(messages) == 0:
-        return 0
-    return sum(len(str(msg.get("content", "")).split()) for msg in messages)
-
-def truncate_messages_openai_for_subject(system_prompt: dict, historico: list, user_question: dict, token_limit: int, reserve_tokens_response=2000):
-    # Se o histórico estiver vazio, não há necessidade de truncar
-    if not historico:
-        return historico
-
-    system_prompt_tokens = count_tokens_openai([system_prompt])
-    user_question_tokens = count_tokens_openai([user_question])
-    history_tokens = count_tokens_openai(historico)
-    total_tokens = system_prompt_tokens + user_question_tokens + history_tokens + reserve_tokens_response
-    if total_tokens <= token_limit:
-        return historico
-    
-    # Se o total de tokens exceder o limite, reduz o histórico
-    max_history_tokens = token_limit - system_prompt_tokens - user_question_tokens - reserve_tokens_response
-    if max_history_tokens <= 0:
-        return []
-    
-    # reduz o histórico para o número máximo de tokens permitido
-    truncated_history = []
-    # Para o metodo subject não é necessário inverter a ordem
-    for message in historico:
-        message_tokens = count_tokens_openai([message])
-        history_tokens = count_tokens_openai(truncated_history)
-        if history_tokens + message_tokens <= max_history_tokens:
-            truncated_history.append(message)
-        else:
-            break
-    # não inverte a lista de mensagens truncadas para manter a ordem original
-    return truncated_history
-    
-
-def truncate_messages_openai(system_prompt: dict, historico: list, user_question: dict, assistant_message: dict, modelo: str, token_limit: int, reserve_tokens_response=2000):
-
-    qtd_tokens_assistant_message = 0
-    if assistant_message is not None:
-        qtd_tokens_assistant_message = count_tokens_openai([assistant_message])
-
-    question_tokens = (
-        count_tokens_openai([system_prompt]) + 
-        count_tokens_openai([user_question]) + 
-        qtd_tokens_assistant_message + 
-        reserve_tokens_response
-        )
-    
-    total_tokens = count_tokens_openai(historico) + question_tokens
-    
-    if total_tokens <= token_limit:
-        return historico
-
-    
-    max_history_tokens = token_limit - question_tokens
-
-    if max_history_tokens <= 0:
-        return []
-
-
-    # reduz o histórico para o número máximo de tokens permitido
-    truncated_history = []
-    for message in reversed(historico):
-        message_tokens = count_tokens_openai([message])
-        history_tokens = count_tokens_openai(truncated_history)
-
-        if history_tokens + message_tokens <= max_history_tokens:
-            truncated_history.append(message)
-        else:
-            break
-    # inverte a lista de mensagens truncadas para manter a ordem original
-    return truncated_history.reverse()
-
-
-def truncate_messages_llama(system_prompt: dict, historico: list, user_question: dict, assistant_message: dict, modelo: str, token_limit: int, reserve_tokens_response=2000):
-    
-    qtd_tokens_assistant_message = 0
-    if assistant_message is not None:
-        qtd_tokens_assistant_message = count_words([assistant_message])
-
-    question_tokens = (
-        count_words([system_prompt]) + 
-        count_words([user_question]) + 
-        qtd_tokens_assistant_message +
-        reserve_tokens_response
-        )
-    
-    total_tokens = count_words(historico) + question_tokens
-    
-    if total_tokens <= token_limit:
-        return historico
-
-    
-    max_history_tokens = token_limit - question_tokens
-
-    if max_history_tokens <= 0:
-        return []
-    # reduz o histórico para o número máximo de tokens permitido
-    truncated_history = []
-    for message in reversed(historico):
-        message_tokens = count_words([message])
-        history_tokens = count_words(truncated_history)
-        if history_tokens + message_tokens <= max_history_tokens:
-            truncated_history.append(message)
-        else:
-            break
-    # inverte a lista de mensagens truncadas para manter a ordem original
-    return truncated_history.reverse()
-
-
-def truncate_history(system_prompt: dict, historico: list, user_question: dict, assistant_message: dict, modelo: str, token_limit: int, reserve_tokens_response=2000):
+def truncate_history(system_prompt: dict, historico: list, user_question: dict, assistant_message: dict, modelo: str, token_limit: int, reserve_tokens_response: int):
     
     if modelo == "gpt-4o-mini":
-        return truncate_messages_openai(system_prompt, historico, user_question, assistant_message, modelo, token_limit)
+        return openai_utils.truncate_messages_openai_v2(system_prompt, historico, user_question, assistant_message, modelo, token_limit, reserve_tokens_response=reserve_tokens_response)
     elif modelo == "llama3":
-        return truncate_messages_llama(system_prompt, historico, user_question, assistant_message, modelo, token_limit)
+        return llama_utils.truncate_messages_llama(system_prompt, historico, user_question, assistant_message, modelo, token_limit, reserve_tokens_response=reserve_tokens_response)
     else:
         raise ValueError(f"Modelo {modelo} não suportado para truncamento de mensagens.")
 
@@ -154,11 +30,19 @@ class AgentState(TypedDict, total=False):
     response: str
 
 class AsyncAgentService:
-    def __init__(self, model: str, api_key: str, temperature: float = 0.3, token_limit: int = 128000):
+    def __init__(
+            self, 
+            model: str, 
+            api_key: str, 
+            temperature: float,
+            token_limit: int,
+            answer_limit: int
+            ):
         self.model = model
         self.openai_api_key = api_key
         self.temperature = temperature
         self.token_limit = token_limit
+        self.answer_limit = answer_limit
         self.client = ChatOpenAI(
             model=model,
             openai_api_key=api_key,
@@ -196,7 +80,7 @@ class AsyncAgentService:
             - Nunca invente uma Action que não existe. Só use {"action": "datahub_schema_search","action_input": "*termo*"} quando realmente necessário.
             - Não tente responder ao usuário se não tiver certeza do ele está perguntando ou de que o histórico é suficiente.
             - Se a resposta conter codigo ou markdown, utilize sempre três crases (```) seguido da linguagem de programação correspondente (ex: ```sql) (ex: ```markdown) e finalize com três crases (```).
-            - Se você gerar algum código em SQL, deixe apenas o schema.tabela, retirando o database.
+            - Se o usuário fizer uma pergunta que não seja sobre o catálogo de dados, responda que o seu proposito é ajudar com dados e que ele deve fazer perguntas relacionadas a datasets, tabelas, colunas, tags ou informações sobre o catálogo de dados da empresa.
             - Sempre responda em português.
 
             Como extrair o campo *termo* de busca:
@@ -219,7 +103,10 @@ class AsyncAgentService:
             Resposta: Liquidação é o processo de...
 
             Exemplo de resposta com SQL:
-            Resposta: select * from captalys_analytics.d_calendario
+            # Remova o database e mantenha apenas schema.tabela (datalake_dw.captalys_analytics.d_calendario)
+            ```sql
+            select * from captalys_analytics.d_calendario
+            ```
             """
         }
 
@@ -228,7 +115,7 @@ class AsyncAgentService:
         user_question = {"role": "user", "content": input}
         assistant_message = None
 
-        historico = truncate_history(system_prompt=prompt, historico=historico, user_question=user_question, assistant_message=assistant_message, modelo=self.model, token_limit=self.token_limit)
+        historico = truncate_history(system_prompt=prompt, historico=historico, user_question=user_question, assistant_message=assistant_message, modelo=self.model, token_limit=self.token_limit, reserve_tokens_response=self.answer_limit)
 
         # Adiciona o prompt ao inicio do histórico
         messages = [prompt] + historico + [user_question]
@@ -297,25 +184,26 @@ class AsyncAgentService:
         result = state.get("result", "")
         logging.debug(f"Input: {input}, Result: {result}")
 
-        prompt = {
+        system_prompt = {
             "role": "system",
             "content": """
             Você é um assistente especializado em catálogo de dados e SQL.
             Sua tarefa é responder de forma clara e útil, utilizando sempre que possível o conteúdo da variável result.
 
             Regras:
-            - Se a variável result estiver vazia, responda diretamente à pergunta do usuário com base no seu conhecimento.
-            - Se a variável result não estiver vazia, utilize as informações contidas nela para construir uma resposta mais completa, detalhada e personalizada para o usuário.
+            - Analise cuidadosamente a mensaguem e seu histórico.
+            - Analise o conteúdo adicional caso haja com role assistant anexado.
             - Se a pergunta do usuário solicitar um exemplo de SQL, utilize os dados de result para montar a query, removendo o nome do database e mantendo apenas schema.tabela.
             - Sempre explique de forma didática, cite nomes de tabelas, campos ou exemplos práticos quando possível.
-            - Não repita o conteúdo de result literalmente; integre as informações de forma natural na resposta.
             - Seja objetivo, evite respostas genéricas e adapte o tom para o contexto de dados corporativos.
             - Se a resposta conter codigo ou markdown, utilize sempre três crases (```) seguido da linguagem de programação correspondente (ex: ```sql) (ex: ```markdown) e finalize com três crases (```).
-            - Se você gerar algum código em SQL, deixe apenas o schema.tabela, retirando o database.
             - Sempre responda em português.
 
             Exemplo de resposta com SQL:
-            Resposta: select * from captalys_analytics.d_calendario
+            # Remova o database e mantenha apenas schema.tabela (datalake_dw.captalys_analytics.d_calendario)
+            ```sql
+            select * from captalys_analytics.d_calendario
+            ```
             """
 
         }
@@ -324,11 +212,11 @@ class AsyncAgentService:
         user_question = {"role": "user", "content": input}
         assistant_message = {
             "role": "assistant",
-            "content": str(result) if not isinstance(result, str) else result
+            "content": agent_utils.compress_json_array_to_string(result)
         }
 
-        historico = truncate_history(system_prompt=prompt, historico=historico, user_question=user_question, assistant_message=assistant_message, modelo=self.model, token_limit=self.token_limit)
-        messages = [prompt] + historico + [user_question] + [assistant_message]
+        historico = truncate_history(system_prompt=system_prompt, historico=historico, user_question=user_question, assistant_message=assistant_message, modelo=self.model, token_limit=self.token_limit, reserve_tokens_response=self.answer_limit)
+        messages = [system_prompt] + historico + [user_question] + [assistant_message]
 
 
         response = await self.client.ainvoke(messages)
@@ -397,9 +285,13 @@ class AsyncAgentService:
         }
         user_question = {"role": "user", "content": "Crie um assunto para as mensagens abaixo:"}
 
-        fake_answer_response_255 = '' * 255
-        reserved_answer_tokens = count_tokens_openai(fake_answer_response_255) + 500 # 500 tokens de reserva
-        history_message_truncated = truncate_messages_openai_for_subject(system_prompt=system_prompt, historico=messages, user_question=user_question, token_limit=self.token_limit, reserve_tokens_response=reserved_answer_tokens)
+        fake_answer_response_255 = 'Resposta fake de exemplo com 255 caracteres para teste de truncamento, gerando um assunto claro e conciso que capture os principais pontos discutidos nas mensagens fornecidas, garantindo que o assunto seja curto e direto ao ponto.'
+        fake_answer_dict = {
+            "role": "assistant",
+            "content": fake_answer_response_255
+            }
+        reserved_answer_tokens =  openai_utils.count_tokens_openai(messages=[fake_answer_dict], model=self.model) + 500 # 500 tokens de reserva
+        history_message_truncated = openai_utils.truncate_messages_openai_for_subject(system_prompt=system_prompt, historico=messages, user_question=user_question, token_limit=self.token_limit, reserve_tokens_response=reserved_answer_tokens, model=self.model)
 
         # Adicionando ao user_question o histórico truncado
         user_question["content"] = user_question["content"] + "\n" + str(history_message_truncated)

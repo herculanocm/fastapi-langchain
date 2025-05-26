@@ -2,7 +2,6 @@ from typing import AsyncGenerator
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import HTTPException
 from core.database import Session
-from core.llm import LLMService
 from core.services.aync_agent_service import AsyncAgentService
 from core.configs import settings
 from core.services.connection_manager_service import connection_manager_instance, ConnectionManagerService
@@ -28,22 +27,6 @@ async def get_session() -> AsyncGenerator[AsyncSession, None]:
         # Sempre feche a sessão.
         await session.close()
 
-async def get_llm_service() -> AsyncGenerator[LLMService, None]:
-    if not all([settings.LLM_MODEL, settings.LLM_API_KEY]):
-        raise RuntimeError("LLM model ou API key não configurado corretamente.")
-    
-    get_llm_service =  LLMService(
-        model=settings.LLM_MODEL,
-        api_key=settings.LLM_API_KEY,
-        temperature=settings.LLM_TEMPERATURE
-    ) 
-    try:
-        yield get_llm_service
-    except Exception as e:
-        print(f"Error: {e}")
-    finally:
-        await get_llm_service.close()
-
 async def get_async_agent_service() -> AsyncGenerator[AsyncAgentService, None]:
     if not all([settings.LLM_MODEL, settings.LLM_API_KEY]):
         raise RuntimeError("LLM model ou API key não configurado corretamente.")
@@ -51,7 +34,9 @@ async def get_async_agent_service() -> AsyncGenerator[AsyncAgentService, None]:
     get_agent_service =  AsyncAgentService(
         model=settings.LLM_MODEL,
         api_key=settings.LLM_API_KEY,
-        temperature=settings.LLM_TEMPERATURE
+        temperature=settings.LLM_TEMPERATURE,
+        token_limit=settings.LLM_TOKEN_LIMIT,
+        answer_limit=settings.LLM_ANSWER_LIMIT,
     ) 
     try:
         yield get_agent_service
@@ -61,4 +46,13 @@ async def get_async_agent_service() -> AsyncGenerator[AsyncAgentService, None]:
         await get_agent_service.close()
 
 async def get_connection_manager() -> AsyncGenerator[ConnectionManagerService, None]:
-    yield connection_manager_instance
+
+    """Retorna uma instância do ConnectionManagerService."""
+    try:
+        yield connection_manager_instance
+    except Exception as e:
+        print(f"Error: {e}")
+    finally:
+        # Não fechamos o ConnectionManagerService aqui, pois ele é um singleton
+        # e deve permanecer ativo durante toda a vida útil da aplicação.
+        pass
